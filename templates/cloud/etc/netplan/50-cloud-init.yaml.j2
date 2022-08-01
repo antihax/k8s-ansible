@@ -1,0 +1,21 @@
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+{% for interface in ansible_interfaces %}
+{% if  hostvars[inventory_hostname]['ansible_'~interface]['ipv4']['address'] == hostvars[inventory_hostname].ip %}
+    {{ interface }}:
+      addresses:
+      - {{ hostvars[inventory_hostname]['ansible_'~interface]['ipv4']['address'] }}/32
+      match:
+        macaddress: {{ hostvars[inventory_hostname]['ansible_'~interface]['macaddress'] }}
+      routes:
+      - to: default
+        via: 10.0.0.1
+        on-link: true
+      nameservers:
+        addresses:
+        - 8.8.8.8
+        - 1.1.1.1
+{% endif %}
+{% endfor %}

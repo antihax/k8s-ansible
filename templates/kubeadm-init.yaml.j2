@@ -1,0 +1,20 @@
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: "{{ hostvars[inventory_hostname].ip }}"
+nodeRegistration:
+  kubeletExtraArgs:
+    node-ip: "{{ hostvars[inventory_hostname].ip }}"
+    address: "{{ hostvars[inventory_hostname].ip }}"
+---
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: ClusterConfiguration
+networking:
+  podSubnet: 192.168.0.0/16
+apiServer:
+   extraArgs:
+     bind-address: "{{ hostvars[inventory_hostname].ip }}"
+---
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+healthzBindAddress: 127.0.0.1:10256

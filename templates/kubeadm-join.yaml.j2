@@ -1,0 +1,16 @@
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: JoinConfiguration
+discovery:
+  bootstrapToken:
+    apiServerEndpoint: "10.0.0.2:6443"
+    token: "{{ hostvars["master01"].join_token }}"
+    caCertHashes:
+      - "{{ hostvars["master01"].ca_cert_hashes }}"
+nodeRegistration:
+  kubeletExtraArgs:
+    node-ip: "{{ hostvars[inventory_hostname].ip }}"
+    address: "{{ hostvars[inventory_hostname].ip }}"
+---
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+healthzBindAddress: 127.0.0.1:10256

@@ -1,0 +1,266 @@
+## cloud hosts are configured with cloud-init via hetzner to use dhcp.
+## we must remove the automatic configuration to add our router.
+- hosts: cloud
+  tasks:
+  - name: configure static networking and gateway
+    template:
+      src: cloud/etc/netplan/50-cloud-init.yaml.j2
+      dest: /etc/netplan/50-cloud-init.yaml
+      owner: root
+      group: root
+      mode: 0644
+  - name: disable cloud-init network
+    template:
+      src: cloud/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg.j2
+      dest: /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+      owner: root
+      group: root
+      mode: 0644      
+    notify:
+      - netplan apply
+  handlers:
+  - name: netplan apply
+    command: netplan apply
+
+
+
+## add the private address to stop kubelet being silly with its nodeIp
+- hosts: kubernetes
+  become: true
+  collections:
+  - ansible.posix.sysctl
+
+  tasks:
+  - lineinfile:
+      path: /etc/hosts
+      line: "{{ hostvars[inventory_hostname].ip }} {{ ansible_hostname }}"
+
+  - name: remove swapfile from /etc/fstab
+    mount:
+      name: "swap"
+      fstype: swap
+      state: absent
+
+  - name: add overlay and br_netfilter modules
+    modprobe:
+      name: "{{ item }}"
+      state: present
+    loop:
+      - "overlay"
+      - "br_netfilter"
+
+  - name: set net.bridge.bridge-nf-call-iptables
+    ansible.posix.sysctl:
+      name: net.bridge.bridge-nf-call-iptables
+      value: '1'
+      sysctl_set: yes
+      state: present
+      reload: yes
+
+  - name: set net.bridge.bridge-nf-call-ip6tables
+    ansible.posix.sysctl:
+      name: net.bridge.bridge-nf-call-ip6tables
+      value: '1'
+      sysctl_set: yes
+      state: present
+      reload: yes
+
+  - name: set net.ipv4.ip_forward
+    ansible.posix.sysctl:
+      name: net.ipv4.ip_forward
+      value: '1'
+      sysctl_set: yes
+      state: present
+      reload: yes
+
+
+## upgrade everything (you usually don't want this for a production system)
+  - name: upgrade packages
+    apt:
+      update_cache: yes
+      upgrade: true
+    tags: ["never", "upgrade"]
+
+## install stuff we need to install k8s
+  - name: install baseline packages
+    apt:
+      name: "{{ packages }}"
+      state: present
+      update_cache: yes
+    vars:
+      packages:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg-agent
+      - software-properties-common
+
+## purge things we don't need
+  - name: purge unneeded packages
+    apt:
+      name: "{{ packages }}"
+      state: absent
+      purge: true
+      autoremove: true
+    vars:
+      packages:
+      - snapd
+      - squashfs-tools
+      - friendly-recovery
+      - apport
+      - at
+      - ufw
+      - unattended-upgrades
+      - open-vm-tools
+
+  - name: disable password authentication for root
+    lineinfile:
+      path: /etc/ssh/sshd_config
+      state: present
+      regexp: '^#?PermitRootLogin'
+      line: 'PermitRootLogin prohibit-password'
+    notify:
+      - restart sshd
+
+  - name: disable empty password login
+    lineinfile: 
+      path: /etc/ssh/sshd_config 
+      state: present
+      regexp: '^#?PermitEmptyPasswords' 
+      line: 'PermitEmptyPasswords no'
+    notify: restart sshd
+
+  - name: listen only on private addresses
+    lineinfile: 
+      path: /etc/ssh/sshd_config 
+      state: present
+      regexp: '^#?ListenAddress' 
+      line: 'ListenAddress {{ hostvars[inventory_hostname].ip }}'
+    notify: restart sshd
+
+  - name: apt signing key for docker 
+    apt_key:
+      url: https://download.docker.com/linux/ubuntu/gpg
+      state: present
+
+  - name: apt repository for docker
+    apt_repository:
+      repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+      state: present
+
+  - name: apt signing key for kubernetes
+    apt_key:
+      url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+      state: present
+
+  # xenial last available.
+  - name: apt repository for kubernetes
+    apt_repository:
+      repo: deb http://apt.kubernetes.io/ kubernetes-xenial main
+      state: present
+      filename: 'kubernetes'
+     
+  - name: install kubernetes
+    apt:
+      name: "{{ packages }}"
+      state: latest
+      update_cache: true
+    vars:
+      packages:
+      - containerd.io
+      - kubelet
+      - kubeadm
+
+  - name: containerd config directory exists.
+    file:
+      path: /etc/containerd
+      state: directory
+
+  - name: check if we have the correct containerd config
+    lineinfile:
+      path: /etc/containerd/config.toml
+      regexp: '(.*SystemdCgroup = false|disabled_plugins = \["cri"\])'
+      state: absent
+    check_mode: yes
+    register: containerd_reconfigure
+    failed_when: false
+
+  - name: rebuild containerd config
+    command: containerd config default
+    check_mode: no
+    register: containerd_config
+    when: containerd_reconfigure is changed
+
+  - name: write configuration
+    copy:
+      dest: /etc/containerd/config.toml
+      content: "{{ containerd_config.stdout }}"
+    notify: restart containerd
+    when: containerd_reconfigure is changed
+
+  - name: enabled systemd cgroup
+    lineinfile:
+      dest: /etc/containerd/config.toml
+      regexp: '^(.*)SystemdCgroup = false'
+      line: '\1SystemdCgroup = true'
+      backrefs: yes
+      state: present
+    notify: restart containerd
+    when: containerd_reconfigure is changed
+
+  - name: start containerd and enable at boot.
+    service:
+      name: containerd
+      state: started
+      enabled: true
+
+  handlers:
+    - name: restart sshd
+      service:
+        name: sshd
+        state: restarted
+
+    - name: restart containerd
+      service:
+        name: containerd
+        state: restarted
+
+
+
+### setup the master servers
+- hosts: masters
+  become: true
+  collections:
+  - kubernetes.core
+  tasks:
+  - name: install kubectl
+    apt:
+      name: kubectl
+      state: latest
+
+  - name: create kubeadm config
+    template:
+      src: kubeadm-init.yaml.j2
+      dest: ~/kubeadm-init.yaml
+      owner: root
+      group: root
+      mode: 0600
+    tags: "debug"
+
+  - name: check if already initilized
+    file:
+      path: /etc/kubernetes/admin.conf
+      state: file
+    register: kubeadm_init
+    tags: "debug"
+    failed_when: false
+
+  - name: initialize the cluster
+    shell: kubeadm init --config ~/kubeadm-init.yaml
+    when: kubeadm_init.uid is undefined
+    tags: "debug"
+
+
+
+### /etc/kubernetes/admin.conf
+### kubeadm init --config kubeadm-config-init.yaml
