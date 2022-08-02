@@ -230,13 +230,37 @@
 ### setup the master servers
 - hosts: masters
   become: true
-  collections:
-  - kubernetes.core
+
   tasks:
+  - name: apt signing key for helm 
+    apt_key:
+      url: https://baltocdn.com/helm/signing.asc
+      state: present
+
+  - name: apt repository for helm
+    apt_repository:
+      repo: deb [arch=amd64] https://baltocdn.com/helm/stable/debian/ all main
+      state: present
+
+  - name: install helm
+    apt:
+      name: helm
+      state: latest
+      update_cache: yes   
+
   - name: install kubectl
     apt:
       name: kubectl
       state: latest
+
+  - name: install pip
+    apt:
+      name: python3-pip
+      state: latest
+
+  - name: install kubernetes package
+    pip:
+      name: kubernetes
 
   - name: create kubeadm config
     template:
@@ -245,22 +269,118 @@
       owner: root
       group: root
       mode: 0600
-    tags: "debug"
 
   - name: check if already initilized
     file:
       path: /etc/kubernetes/admin.conf
       state: file
     register: kubeadm_init
-    tags: "debug"
     failed_when: false
 
   - name: initialize the cluster
     shell: kubeadm init --config ~/kubeadm-init.yaml
     when: kubeadm_init.uid is undefined
-    tags: "debug"
 
+  - name: check if /etc/kubernetes/admin.conf exists
+    stat: path=/etc/kubernetes/admin.conf
+    register: k8s_admin_conf
+    failed_when: not k8s_admin_conf.stat.exists
 
+  - name: create .kube dir
+    file:
+      path: ~/.kube/
+      state: directory
+    when: k8s_admin_conf.stat.exists
 
-### /etc/kubernetes/admin.conf
-### kubeadm init --config kubeadm-config-init.yaml
+  - name: copy admin.conf to root kube config
+    copy:
+      src: /etc/kubernetes/admin.conf
+      dest: ~/.kube/config
+      mode: '0600'
+      remote_src: yes
+    when: k8s_admin_conf.stat.exists
+
+  - name: copy admin.conf to user's kube config
+    fetch:
+      src: /etc/kubernetes/admin.conf
+      dest: ~/.kube/config
+      remote_src: yes
+      flat: yes
+    when: k8s_admin_conf.stat.exists
+
+  - name: create calico-resources.yaml config
+    template:
+      src: calico-resources.yaml.j2
+      dest: ~/calico-resources.yaml
+      owner: root
+      group: root
+      mode: 0600
+
+  - name: download calico config
+    get_url:
+      url: https://projectcalico.docs.tigera.io/manifests/tigera-operator.yaml
+      dest: ~/tigera-operator.yaml
+      mode: '0600'
+
+  - name: deploy calico tigera
+    kubernetes.core.k8s:
+      state: present
+      src: ~/tigera-operator.yaml
+
+  - name: deploy calico resources
+    kubernetes.core.k8s:
+      state: present
+      src: ~/calico-resources.yaml
+
+  - name: add haproxytech help repo
+    kubernetes.core.helm_repository:
+      name: haproxytech
+      repo_url: https://haproxytech.github.io/helm-charts
+
+  - name: install helm-diff plugin
+    kubernetes.core.helm_plugin:
+      plugin_path: https://github.com/databus23/helm-diff
+      state: present
+
+  - name: create haproxy namespace
+    kubernetes.core.k8s:
+      name: haproxy
+      kind: Namespace
+      state: present
+
+  - name: deploy haproxy ingress
+    kubernetes.core.helm:
+      name: haproxy
+      chart_ref: haproxytech/kubernetes-ingress
+      release_namespace: haproxy
+      values:
+        controller:
+          kind: DaemonSet
+          daemonset:
+            useHostPort: true
+          nodeSelector:
+            loadbalancer: "haproxy"
+
+  - name: download cert-manager config
+    get_url:
+      url: https://github.com/jetstack/cert-manager/releases/latest/download/cert-manager.yaml
+      dest: ~/cert-manager.yaml
+      mode: '0600'
+
+  - name: deploy cert-manager
+    kubernetes.core.k8s:
+      state: present
+      src: ~/cert-manager.yaml
+
+  - name: download openebs-operator config
+    get_url:
+      url: https://openebs.github.io/charts/openebs-operator.yaml
+      dest: ~/openebs-operator.yaml
+      mode: '0600'
+
+  - name: deploy openebs-operator
+    kubernetes.core.k8s:
+      state: present
+      src: ~/openebs-operator.yaml
+
+    

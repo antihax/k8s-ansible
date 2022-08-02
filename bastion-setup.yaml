@@ -1,0 +1,31 @@
+- name: "Playing with Ansible and Git"
+  hosts: localhost
+  connection: local 
+  tasks:
+  - name: apt signing key for kubernetes
+    become: true
+    apt_key:
+      url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+      state: present
+
+  - name: apt repository for kubernetes
+    become: true
+    apt_repository:
+      repo: deb http://apt.kubernetes.io/ kubernetes-xenial main
+      state: present
+      filename: 'kubernetes'
+      
+  - name: install kubernetes & pip
+    become: true
+    apt:
+      name: "{{ packages }}"
+      state: latest
+      update_cache: true
+    vars:
+      packages:
+      - kubectl
+      - python3-pip
+
+  - name: install kubernetes package
+    pip:
+      name: kubernetes
