@@ -2,8 +2,8 @@ network:
   version: 2
   renderer: networkd
   ethernets:
-{% for interface in ansible_interfaces %}
-{% if  hostvars[inventory_hostname]['ansible_'~interface]['ipv4']['address'] == hostvars[inventory_hostname].ip %}
+{% for interface in ansible_interfaces if hostvars[inventory_hostname]['ansible_'~interface]['ipv4'] is defined and interface.startswith("e") %}
+  {% if hostvars[inventory_hostname]['ansible_'~interface]['ipv4']['address'] == hostvars[inventory_hostname].ip %}
     {{ interface }}:
       addresses:
       - {{ hostvars[inventory_hostname]['ansible_'~interface]['ipv4']['address'] }}/32
@@ -17,5 +17,5 @@ network:
         addresses:
         - 8.8.8.8
         - 1.1.1.1
-{% endif %}
+  {% endif %}
 {% endfor %}
