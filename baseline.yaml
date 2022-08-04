@@ -9,6 +9,8 @@
       owner: root
       group: root
       mode: 0644
+    notify:
+      - netplan apply
   - name: disable cloud-init network
     template:
       src: cloud/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg.j2
@@ -73,7 +75,6 @@
       state: present
       reload: yes
 
-
 ## upgrade everything (you usually don't want this for a production system)
   - name: upgrade packages
     apt:
@@ -137,6 +138,13 @@
       regexp: '^#?ListenAddress' 
       line: 'ListenAddress {{ hostvars[inventory_hostname].ip }}'
     notify: restart sshd
+
+  - name: fix sshd starting before network interface
+    lineinfile: 
+      path: /etc/systemd/system/sshd.service 
+      state: present
+      regexp: '^After=network.target auditd.service' 
+      line: 'After=network-online.target auditd.service'
 
   - name: apt signing key for docker 
     apt_key:
@@ -214,6 +222,18 @@
       state: started
       enabled: true
 
+  - name: install pip
+    apt:
+      name: python3-pip
+      state: latest
+
+  - name: install kubernetes & support packages
+    pip:
+      name: 
+        - kubernetes
+        - openshift
+        - pyyaml
+
   handlers:
     - name: restart sshd
       service:
@@ -224,6 +244,42 @@
       service:
         name: containerd
         state: restarted
+
+
+
+### setup the physicalworkers servers
+- hosts: physicalworkers
+  become: true
+  tasks:
+
+  - name: install baseline packages
+    apt:
+      name: "{{ packages }}"
+      state: present
+      update_cache: yes
+    vars:
+      packages:
+      - linux-generic-hwe-{{ ansible_distribution_version }}
+      - linux-generic
+
+  - name: add nvme-tcp and xfs modules
+    modprobe:
+      name: "{{ item }}"
+      state: present
+    loop:
+      - "nvme-tcp"
+      - "ext4"
+      - "zfs"
+
+  - name: set 1024 nr_hugepages
+    ansible.posix.sysctl:
+      name: vm.nr_hugepages
+      value: '1024'
+      state: present
+
+  - name: restart
+    ansible.builtin.reboot:
+      reboot_timeout: 60
 
 
 
@@ -252,15 +308,6 @@
     apt:
       name: kubectl
       state: latest
-
-  - name: install pip
-    apt:
-      name: python3-pip
-      state: latest
-
-  - name: install kubernetes package
-    pip:
-      name: kubernetes
 
   - name: create kubeadm config
     template:
@@ -383,4 +430,96 @@
       state: present
       src: ~/openebs-operator.yaml
 
+
+
+
+### join workers
+- hosts: workers
+  become: true
+
+  tasks:
+  - name: check if already initilized
+    file:
+      path: /etc/kubernetes/kubelet.conf
+      state: file
+    register: kubeadm_join
+    failed_when: false
+    tags: ["debug"]
+
+  - name: get join token
+    command: "kubeadm token create --ttl 1m --print-join-command"
+    register: join_command
+    delegate_to: master01
+    when: kubeadm_join.uid is undefined
+    tags: ["debug"]
+  - set_fact:
+      join_token: "{{ join_command.stdout | regex_search(token_regex, '\\2') | first }}"
+      ca_cert_hash:  "{{ join_command.stdout | regex_search(ca_cert_hash_regex, '\\2') | first }}"
+    vars:
+      token_regex: '([^\s]+\s){4}([^\s]+)'
+      ca_cert_hash_regex: '([^\s]+\s){6}([^\s]+)'
+    when: kubeadm_join.uid is undefined
+    tags: ["debug"]
+
+  - name: create kubeadm config
+    template:
+      src: kubeadm-join.yaml.j2
+      dest: ~/kubeadm-join.yaml
+      owner: root
+      group: root
+      mode: 0600
+      force: yes
+    when: kubeadm_join.uid is undefined
+    tags: ["debug"]
+
+  - name: initialize the cluster
+    shell: kubeadm join --config ~/kubeadm-join.yaml
+    when: kubeadm_join.uid is undefined
+    tags: ["debug"]
     
+  - name: label nodes
+    delegate_to: master01
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: v1
+        kind: Node
+        metadata:
+          name: "{{ inventory_hostname }}"
+          labels: 
+            worker: "worker"
+    tags: ["debug"]
+
+### handle load balancers
+- hosts: loadbalancers
+  become: true
+  tasks:
+  - name: label nodes
+    delegate_to: master01
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: v1
+        kind: Node
+        metadata:
+          name: "{{ inventory_hostname }}"
+          labels: 
+            loadbalancer: "haproxy"
+    tags: ["debug"]
+
+### handle storage
+- hosts: physicalworkers
+  become: true
+  tasks:
+  - name: label nodes
+    delegate_to: master01
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: v1
+        kind: Node
+        metadata:
+          name: "{{ inventory_hostname }}"
+          labels: 
+            openebs.io/engine: mayastor
+    tags: ["debug"]

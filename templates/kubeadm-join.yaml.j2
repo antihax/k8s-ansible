@@ -2,10 +2,10 @@ apiVersion: kubeadm.k8s.io/v1beta3
 kind: JoinConfiguration
 discovery:
   bootstrapToken:
-    apiServerEndpoint: "10.0.0.2:6443"
-    token: "{{ hostvars["master01"].join_token }}"
+    apiServerEndpoint: "{{ hostvars['master01'].ip }}:6443"
+    token: "{{ hostvars[inventory_hostname].join_token }}"
     caCertHashes:
-      - "{{ hostvars["master01"].ca_cert_hashes }}"
+      - "{{ hostvars[inventory_hostname].ca_cert_hash }}"
 nodeRegistration:
   kubeletExtraArgs:
     node-ip: "{{ hostvars[inventory_hostname].ip }}"
