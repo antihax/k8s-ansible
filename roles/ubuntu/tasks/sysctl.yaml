@@ -1,0 +1,31 @@
+  - name: add overlay and br_netfilter modules
+    modprobe:
+      name: "{{ item }}"
+      state: present
+    loop:
+      - "overlay"
+      - "br_netfilter"
+
+  - name: set net.bridge.bridge-nf-call-iptables
+    ansible.posix.sysctl:
+      name: net.bridge.bridge-nf-call-iptables
+      value: '1'
+      sysctl_set: yes
+      state: present
+      reload: yes
+
+  - name: set net.bridge.bridge-nf-call-ip6tables
+    ansible.posix.sysctl:
+      name: net.bridge.bridge-nf-call-ip6tables
+      value: '1'
+      sysctl_set: yes
+      state: present
+      reload: yes
+
+  - name: set net.ipv4.ip_forward
+    ansible.posix.sysctl:
+      name: net.ipv4.ip_forward
+      value: '1'
+      sysctl_set: yes
+      state: present
+      reload: yes

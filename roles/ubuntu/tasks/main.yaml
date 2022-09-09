@@ -1,0 +1,9 @@
+## force private address for hostname
+  - lineinfile:
+      path: /etc/hosts
+      line: "{{ hostvars[inventory_hostname].ip }} {{ ansible_hostname }}"
+
+  - include: "sshd.yaml"
+  - include: "swap.yaml"
+  - include: "sysctl.yaml"
+  - include: "apt.yaml"

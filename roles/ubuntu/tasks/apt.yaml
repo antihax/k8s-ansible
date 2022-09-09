@@ -1,0 +1,42 @@
+
+## install stuff we need to install k8s
+  - name: install baseline packages
+    apt:
+      name: "{{ packages }}"
+      state: present
+      update_cache: yes
+    vars:
+      packages:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg-agent
+      - software-properties-common
+      - apparmor
+      - apparmor-utils
+      - open-iscsi
+
+## purge things we don't need
+  - name: purge unneeded packages
+    apt:
+      name: "{{ packages }}"
+      state: absent
+      purge: true
+      autoremove: true
+    vars:
+      packages:
+      - snapd
+      - squashfs-tools
+      - friendly-recovery
+      - apport
+      - at
+      - ufw
+      - unattended-upgrades
+      - open-vm-tools
+
+## upgrade everything (you usually don't want this for a production system)
+  - name: upgrade packages
+    apt:
+      update_cache: yes
+      upgrade: true
+    tags: ["never", "upgrade"]

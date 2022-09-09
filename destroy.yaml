@@ -1,0 +1,8 @@
+## teardown
+- hosts: kubernetes
+  become: true
+  tasks:
+  - name: "Disable swap"
+    command:
+      cmd: "kubeadm reset --force --dry-run"
+    tags: ["never", "reset"] # make this explicit to prevent accidental executions

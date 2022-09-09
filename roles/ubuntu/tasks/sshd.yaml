@@ -1,0 +1,31 @@
+  - name: disable password authentication for root
+    lineinfile:
+      path: /etc/ssh/sshd_config
+      state: present
+      regexp: '^#?PermitRootLogin'
+      line: 'PermitRootLogin prohibit-password'
+    notify:
+      - restart sshd
+
+  - name: disable empty password login
+    lineinfile: 
+      path: /etc/ssh/sshd_config 
+      state: present
+      regexp: '^#?PermitEmptyPasswords' 
+      line: 'PermitEmptyPasswords no'
+    notify: restart sshd
+
+  - name: listen only on private addresses
+    lineinfile: 
+      path: /etc/ssh/sshd_config 
+      state: present
+      regexp: '^#?ListenAddress' 
+      line: 'ListenAddress {{ hostvars[inventory_hostname].ip }}'
+    notify: restart sshd
+
+  - name: fix sshd starting before network interface
+    lineinfile: 
+      path: /etc/systemd/system/sshd.service 
+      state: present
+      regexp: '^After=network.target auditd.service' 
+      line: 'After=network-online.target auditd.service'

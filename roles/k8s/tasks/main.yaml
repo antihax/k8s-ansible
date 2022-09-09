@@ -1,0 +1,87 @@
+  - name: apt signing key for docker 
+    apt_key:
+      url: https://download.docker.com/linux/ubuntu/gpg
+      state: present
+
+  - name: apt repository for docker
+    apt_repository:
+      repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+      state: present
+
+  - name: apt signing key for kubernetes
+    apt_key:
+      url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+      state: present
+
+  # xenial last available.
+  - name: apt repository for kubernetes
+    apt_repository:
+      repo: deb http://apt.kubernetes.io/ kubernetes-xenial main
+      state: present
+      filename: 'kubernetes'
+     
+  - name: install kubernetes
+    apt:
+      name: "{{ packages }}"
+      state: latest
+      update_cache: true
+    vars:
+      packages:
+      - containerd.io
+      - kubelet
+      - kubeadm
+
+  - name: containerd config directory exists.
+    file:
+      path: /etc/containerd
+      state: directory
+
+  - name: check if we have the correct containerd config
+    lineinfile:
+      path: /etc/containerd/config.toml
+      regexp: '(.*SystemdCgroup = false|disabled_plugins = \["cri"\])'
+      state: absent
+    check_mode: yes
+    register: containerd_reconfigure
+    failed_when: false
+
+  - name: rebuild containerd config
+    command: containerd config default
+    check_mode: no
+    register: containerd_config
+    when: containerd_reconfigure is changed
+
+  - name: write configuration
+    copy:
+      dest: /etc/containerd/config.toml
+      content: "{{ containerd_config.stdout }}"
+    notify: restart containerd
+    when: containerd_reconfigure is changed
+
+  - name: enabled systemd cgroup
+    lineinfile:
+      dest: /etc/containerd/config.toml
+      regexp: '^(.*)SystemdCgroup = false'
+      line: '\1SystemdCgroup = true'
+      backrefs: yes
+      state: present
+    notify: restart containerd
+    when: containerd_reconfigure is changed
+
+  - name: start containerd and enable at boot.
+    service:
+      name: containerd
+      state: started
+      enabled: true
+
+  - name: install pip
+    apt:
+      name: python3-pip
+      state: latest
+
+  - name: install kubernetes & support packages
+    pip:
+      name: 
+        - kubernetes
+        - openshift
+        - pyyaml

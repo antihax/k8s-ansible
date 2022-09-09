@@ -1,7 +1,17 @@
-- name: "Playing with Ansible and Git"
+- name: Setup Bastion
   hosts: localhost
   connection: local 
   tasks:
+  - name: apt signing key for helm 
+    apt_key:
+      url: https://baltocdn.com/helm/signing.asc
+      state: present
+
+  - name: apt repository for helm
+    apt_repository:
+      repo: deb [arch=amd64] https://baltocdn.com/helm/stable/debian/ all main
+      state: present
+
   - name: apt signing key for kubernetes
     become: true
     apt_key:
@@ -25,6 +35,7 @@
       packages:
       - kubectl
       - python3-pip
+      - helm
 
   - name: install kubernetes package
     pip:
