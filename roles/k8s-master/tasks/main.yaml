@@ -1,0 +1,5 @@
+  - include: "helm.yaml"
+  - include: "k8s.yaml"
+  - include: "calico.yaml"
+  - include: "longhorn.yaml"
+  - include: "egress.yaml"

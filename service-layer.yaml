@@ -1,0 +1,103 @@
+## install SQL, Elastic, NSQ, etc.
+
+- hosts: masters
+  tasks:
+    - name: add bitnami helm repo
+      kubernetes.core.helm_repository:
+        name: bitnami
+        repo_url: https://charts.bitnami.com/bitnami
+
+    - name: create storage namespace
+      kubernetes.core.k8s:
+        name: storage
+        kind: Namespace
+        state: present
+      register: storage_created
+
+    - name: create sql secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          kind: Secret
+          api_version: v1
+          metadata:
+            name: "sql-auth"
+            namespace: storage
+          data:
+            mariadb-root-password: "{{ lookup('ansible.builtin.password', '/dev/null chars=ascii_letters,digits,punctuation length=32') | b64encode }}"
+            mariadb-password: "{{ lookup('ansible.builtin.password', '/dev/null chars=ascii_letters,digits,punctuation length=32') | b64encode}}"
+          type: Opaque
+      when: storage_created.changed
+
+    - name: create sql storage class
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          metadata:
+            name: sql-class
+          kind: StorageClass
+          namespace: storage
+          apiVersion: storage.k8s.io/v1
+          provisioner: driver.longhorn.io
+          allowVolumeExpansion: true
+          parameters:
+            numberOfReplicas: "2"
+            staleReplicaTimeout: "2880" # 48 hours in minutes
+            fromBackup: ""
+
+    - name: create sql volume
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: sql-pvc
+            namespace: storage
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: sql-class
+            resources:
+              requests:
+                storage: 200Gi
+
+    - name: deploy mariadb
+      kubernetes.core.helm:
+        name: sql
+        chart_ref: bitnami/mariadb
+        release_namespace: storage
+        release_state: present
+        release_values:
+          image:
+            existingSecret:
+          primary:
+            persistence:
+              existingClaim: sql-pvc
+            # configuration: |-
+            #   [mysqld]
+            #   default_authentication_plugin=mysql_native_password
+            #   skip-name-resolve
+            #   explicit_defaults_for_timestamp
+            #   basedir=/opt/bitnami/mysql
+            #   plugin_dir=/opt/bitnami/mysql/lib/plugin
+            #   port=3306
+            #   socket=/opt/bitnami/mysql/tmp/mysql.sock
+            #   datadir=/bitnami/mysql/data
+            #   tmpdir=/opt/bitnami/mysql/tmp
+            #   max_allowed_packet=16M
+            #   bind-address=0.0.0.0
+            #   pid-file=/opt/bitnami/mysql/tmp/mysqld.pid
+            #   log-error=/opt/bitnami/mysql/logs/mysqld.log
+            #   character-set-server=UTF8
+            #   collation-server=utf8_general_ci
+            #   lower_case_table_names=1
+            #   [client]
+            #   port=3306
+            #   socket=/opt/bitnami/mysql/tmp/mysql.sock
+            #   default-character-set=UTF8
+            #   plugin_dir=/opt/bitnami/mysql/lib/plugin
+            #   [manager]
+            #   port=3306
+            #   socket=/opt/bitnami/mysql/tmp/mysql.sock
+            #   pid-file=/opt/bitnami/mysql/tmp/mysqld.pid

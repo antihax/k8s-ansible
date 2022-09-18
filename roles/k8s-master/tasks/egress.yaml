@@ -1,0 +1,43 @@
+  - name: add haproxytech helm repo
+    kubernetes.core.helm_repository:
+      name: haproxytech
+      repo_url: https://haproxytech.github.io/helm-charts
+
+  - name: install helm-diff plugin
+    kubernetes.core.helm_plugin:
+      plugin_path: https://github.com/databus23/helm-diff
+      state: present
+
+  - name: create haproxy namespace
+    kubernetes.core.k8s:
+      name: haproxy
+      kind: Namespace
+      state: present
+
+  - name: deploy haproxy ingress
+    kubernetes.core.helm:
+      state: present
+      name: haproxy
+      chart_ref: haproxytech/kubernetes-ingress
+      release_namespace: haproxy
+      release_state: present
+      values:
+        controller:
+          kind: DaemonSet
+          daemonset:
+            useHostPort: true
+          nodeSelector:
+            loadbalancer: "haproxy"
+
+  - name: download cert-manager config
+    get_url:
+      url: https://github.com/jetstack/cert-manager/releases/latest/download/cert-manager.yaml
+      dest: ~/cert-manager.yaml
+      mode: '0600'
+
+  - name: deploy confguration
+    kubernetes.core.k8s:
+      src: "{{ item }}"
+      state: present
+    loop:
+      - "~/cert-manager.yaml"

@@ -1,0 +1,50 @@
+  - name: install kubectl
+    apt:
+      name: kubectl
+      state: latest
+
+  - name: create kubeadm config
+    template:
+      src: kubeadm-init.yaml.j2
+      dest: ~/kubeadm-init.yaml
+      owner: root
+      group: root
+      mode: 0600
+
+  - name: check if already initilized
+    file:
+      path: /etc/kubernetes/admin.conf
+      state: file
+    register: kubeadm_init
+    failed_when: false
+
+  - name: initialize the cluster
+    shell: kubeadm init --config ~/kubeadm-init.yaml
+    when: kubeadm_init.uid is undefined
+
+  - name: check if /etc/kubernetes/admin.conf exists
+    stat: path=/etc/kubernetes/admin.conf
+    register: k8s_admin_conf
+    failed_when: not k8s_admin_conf.stat.exists
+
+  - name: create .kube dir
+    file:
+      path: ~/.kube/
+      state: directory
+    when: k8s_admin_conf.stat.exists
+
+  - name: copy admin.conf to root kube config
+    copy:
+      src: /etc/kubernetes/admin.conf
+      dest: ~/.kube/config
+      mode: '0600'
+      remote_src: yes
+    when: k8s_admin_conf.stat.exists
+
+  - name: copy admin.conf to user's kube config
+    fetch:
+      src: /etc/kubernetes/admin.conf
+      dest: ~/.kube/config
+      remote_src: yes
+      flat: yes
+    when: k8s_admin_conf.stat.exists

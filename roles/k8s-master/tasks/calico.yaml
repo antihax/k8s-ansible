@@ -1,0 +1,23 @@
+  - name: create calico-resources.yaml config
+    template:
+      src: calico-resources.yaml.j2
+      dest: ~/calico-resources.yaml
+      owner: root
+      group: root
+      mode: 0600
+
+  - name: download calico config
+    get_url:
+      url: https://projectcalico.docs.tigera.io/manifests/tigera-operator.yaml
+      dest: ~/tigera-operator.yaml
+      mode: '0600'
+
+  - name: deploy calico tigera
+    kubernetes.core.k8s:
+      state: present
+      src: ~/tigera-operator.yaml
+
+  - name: deploy calico resources
+    kubernetes.core.k8s:
+      state: present
+      src: ~/calico-resources.yaml
