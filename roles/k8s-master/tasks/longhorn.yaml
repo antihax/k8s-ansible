@@ -25,3 +25,14 @@
           name: backup-target-credential-secret
           namespace: longhorn-system
         value: "aws-secret" 
+
+  - name: set backup endpoint
+    kubernetes.core.k8s:
+      state: present
+      definition:
+        apiVersion: longhorn.io/v1beta1
+        kind: Setting
+        metadata:
+          name: backup-target
+          namespace: longhorn-system
+        value: "s3://longhorn-k8s@us-east-1/" # make this a variable later

@@ -29,12 +29,30 @@
           type: Opaque
       when: storage_created.changed
 
+    - name: create volume backup job
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: longhorn.io/v1beta1
+          kind: RecurringJob
+          metadata:
+            name: sql-backup
+            namespace: longhorn-system
+          spec:
+            cron: "0 0,12 * * *"
+            task: "backup"
+            groups:
+            - sql
+            retain: 60
+            concurrency: 2
+
     - name: create sql storage class
       kubernetes.core.k8s:
         state: present
         definition:
           metadata:
             name: sql-class
+            namespace: storage
           kind: StorageClass
           namespace: storage
           apiVersion: storage.k8s.io/v1
@@ -44,6 +62,7 @@
             numberOfReplicas: "2"
             staleReplicaTimeout: "2880" # 48 hours in minutes
             fromBackup: ""
+            recurringJobSelector: '[{"name":"sql", "isGroup":true}]'
 
     - name: create sql volume
       kubernetes.core.k8s:
