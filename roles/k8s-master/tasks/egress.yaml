@@ -24,6 +24,8 @@
       values:
         controller:
           kind: DaemonSet
+          serviceMonitor:
+            enabled: false
           daemonset:
             useHostPort: true
           nodeSelector:
