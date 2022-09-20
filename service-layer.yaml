@@ -21,11 +21,10 @@
           kind: Secret
           api_version: v1
           metadata:
-            name: "sql-auth"
+            name: sql-auth
             namespace: storage
           data:
             mariadb-root-password: "{{ lookup('ansible.builtin.password', '/dev/null chars=ascii_letters,digits,punctuation length=32') | b64encode }}"
-            mariadb-password: "{{ lookup('ansible.builtin.password', '/dev/null chars=ascii_letters,digits,punctuation length=32') | b64encode}}"
           type: Opaque
       when: storage_created.changed
 
@@ -88,8 +87,8 @@
         release_namespace: storage
         release_state: present
         release_values:
-          image:
-            existingSecret:
+          auth:
+            existingSecret: sql-auth
           primary:
             persistence:
               existingClaim: sql-pvc
