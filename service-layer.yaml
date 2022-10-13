@@ -192,7 +192,7 @@
               socket=/opt/bitnami/mariadb/tmp/mysql.sock
               pid-file=/opt/bitnami/mariadb/tmp/mysqld.pid
 
-    - name: label nodes
+    - name: add alias to sql server because i am lazy
       delegate_to: master01
       kubernetes.core.k8s:
         state: present
@@ -205,3 +205,88 @@
           spec:
             type: ExternalName
             externalName: "sql-mariadb.storage.svc.cluster.local"
+
+    - name: add sql backup cronjob
+      delegate_to: master01
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: batch/v1
+          kind: CronJob
+          metadata:
+            name: sql-backup
+            namespace: storage
+          spec:
+            schedule: "0 20 * * *"
+            concurrencyPolicy: Forbid
+            suspend: false
+            jobTemplate:
+              spec:
+                template:
+                  metadata:
+                    name: mysqldump
+                  spec:
+                    securityContext:
+                      fsGroup: 1001
+                    affinity:
+                      podAffinity:
+                        requiredDuringSchedulingIgnoredDuringExecution:
+                          - labelSelector:
+                              matchExpressions:
+                                - key: app.kubernetes.io/name
+                                  operator: In
+                                  values: ["mariadb"]
+                            topologyKey: kubernetes.io/hostname
+                    initContainers:
+                      - name: mysqldump
+                        image: bitnami/mariadb:10.6.9
+                        command: ["/bin/bash", "-o", "pipefail", "-c"]
+                        args:
+                          [
+                            "mysqldump --max-allowed-packet=1024M --all-databases --opt --compress -uroot --host=${MYSQL_HOST} | gzip -9 > /backup/database.sql.gz",
+                          ]
+                        volumeMounts:
+                          - mountPath: /backup
+                            name: backup-vol
+                        env:
+                          - name: MYSQL_PWD
+                            valueFrom:
+                              secretKeyRef:
+                                name: sql-auth
+                                key: mariadb-root-password
+                          - name: MYSQL_HOST
+                            value: "sql-mariadb"
+                    containers:
+                      - name: awsupload
+                        image: antihax/mysqldump-s3
+                        command: ["/bin/bash", "-c"]
+                        args:
+                          [
+                            'aws --endpoint-url ${AWS_ENDPOINTS} s3 cp /backup/database.sql.gz ${S3_TARGET}/$(date +"%Y-%m-%d").sql.gz',
+                          ]
+                        volumeMounts:
+                          - mountPath: /backup
+                            name: backup-vol
+                        env:
+                          - name: S3_TARGET
+                            value: "s3://b2mysql-backup/"
+                          - name: AWS_ACCESS_KEY_ID
+                            valueFrom:
+                              secretKeyRef:
+                                name: aws-secret
+                                key: AWS_ACCESS_KEY_ID
+                          - name: AWS_SECRET_ACCESS_KEY
+                            valueFrom:
+                              secretKeyRef:
+                                name: aws-secret
+                                key: AWS_SECRET_ACCESS_KEY
+                          - name: AWS_ENDPOINTS
+                            valueFrom:
+                              secretKeyRef:
+                                name: aws-secret
+                                key: AWS_ENDPOINTS                                      
+                    restartPolicy: Never
+                    volumes:
+                      - name: backup-vol
+                        persistentVolumeClaim:
+                          claimName: sql-backup-pvc
