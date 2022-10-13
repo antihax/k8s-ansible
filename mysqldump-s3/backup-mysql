@@ -1,0 +1,28 @@
+#!/bin/bash
+set -e
+set -o pipefail
+
+# MYSQL_PWD
+# MYSQL_HOST
+
+# database user
+if [ -n "${MYSQL_USER}" ]; then
+  MYSQL_USER="--user=${MYSQL_USER}"
+else
+  MYSQL_USER=
+fi
+
+if [ -z "${S3_TARGET}" ]; then
+  echo "S3_TARGET variable is required. Exiting."
+  exit 1
+fi
+
+[[ -n "$AWS_ENDPOINTS" ]] && AWS_ENDPOINT_OPT="--endpoint-url $AWS_ENDPOINTS"
+
+target=/tmp/$(date +"%Y-%m-%d").sql.lz
+
+mysqldump --max-allowed-packet=1024M --all-databases --opt --compress $MYSQL_USER --host=${MYSQL_HOST} | lzip -9 > $target
+if [ "$?" -ne 0 ]; then
+  exit 1
+fi
+
