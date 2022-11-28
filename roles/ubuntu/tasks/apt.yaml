@@ -17,7 +17,6 @@
       - open-iscsi
       - nfs-common
       - cifs-utils
-      - nfs-utils
 
 ## purge things we don't need
   - name: purge unneeded packages
@@ -41,5 +40,5 @@
   - name: upgrade packages
     apt:
       update_cache: yes
-      upgrade: true
+      upgrade: "true"
     tags: ["never", "upgrade"]

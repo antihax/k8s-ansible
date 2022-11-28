@@ -10,6 +10,8 @@ nodeRegistration:
   kubeletExtraArgs:
     node-ip: "{{ hostvars[inventory_hostname].ip }}"
     address: "{{ hostvars[inventory_hostname].ip }}"
+    cloud-provider: "external"
+    allowed-unsafe-sysctls: "net.ipv4.ip_forward,net.ipv6.conf.all.forwarding"
 ---
 apiVersion: kubeproxy.config.k8s.io/v1alpha1
 kind: KubeProxyConfiguration

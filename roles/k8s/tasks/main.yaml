@@ -23,13 +23,24 @@
   - name: install kubernetes
     apt:
       name: "{{ packages }}"
-      state: latest
+      state: present
+      force: True
       update_cache: true
     vars:
       packages:
       - containerd.io
-      - kubelet
-      - kubeadm
+      - kubelet=1.24.8-00
+      - kubeadm=1.24.8-00
+
+  - name: hold kubeadm
+    dpkg_selections:
+      name: kubeadm
+      selection: hold
+
+  - name: hold kubelet
+    dpkg_selections:
+      name: kubelet
+      selection: hold
 
   - name: containerd config directory exists.
     file:
@@ -85,3 +96,11 @@
         - kubernetes
         - openshift
         - pyyaml
+
+  - name: initialize cluster cloudprovider
+    kubernetes.core.k8s_taint:
+      state: absent
+      name: "{{ inventory_hostname }}"
+      taints:
+      - effect: NoSchedule
+        key: "node.cloudprovider.kubernetes.io/uninitialized"        

@@ -1,0 +1,97 @@
+- hosts: masters
+  tasks:
+    - name: add jenkinsci helm repo
+      kubernetes.core.helm_repository:
+        name: jenkinsci 
+        repo_url: https://charts.jenkins.io
+
+    - name: create jenkins namespace
+      kubernetes.core.k8s:
+        name: jenkins
+        kind: Namespace
+        state: present
+      register: storage_created
+
+    - name: create jenkins volume backup job
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: longhorn.io/v1beta1
+          kind: RecurringJob
+          metadata:
+            name: jenkins-backup
+            namespace: longhorn-system
+          spec:
+            cron: "0 2 * * *"
+            task: "backup"
+            groups:
+            - jenkins-backup
+            retain: 7
+            concurrency: 2
+
+    - name: create jenkins storage class
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          metadata:
+            name: jenkins-class
+            namespace: jenkins
+            annotations:
+              pv.beta.kubernetes.io/gid: "1000"            
+          kind: StorageClass
+          namespace: jenkins
+          apiVersion: storage.k8s.io/v1
+          provisioner: driver.longhorn.io
+          allowVolumeExpansion: true
+          parameters:
+            numberOfReplicas: "2"
+            staleReplicaTimeout: "2880"
+            fromBackup: ""
+            recurringJobSelector: '[{"name":"jenkins-backup", "isGroup":true}]'
+
+    - name: create jenkins volume
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: jenkins-pvc
+            namespace: jenkins
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: jenkins-class
+            resources:
+              requests:
+                storage: 200Gi
+
+    - name: deploy jenkins
+      kubernetes.core.helm:
+        name: jenkins
+        chart_ref: jenkinsci/jenkins
+        release_namespace: jenkins
+        release_state: present
+        release_values:
+          persistence:
+            enabled: true
+            storageClass: jenkins-class
+            existingClaim: jenkins-pvc
+          rbac:
+            create: true
+          controller:
+            podSecurityContextOverride:
+              runAsNonRoot: true
+              runAsUser: 1000
+              fsGroup: 1000
+              supplementalGroups: [1000]
+            sidecars:
+              configAutoReload:
+                enabled: true
+          agent:
+            podName: default
+            customJenkinsLabels: default
+            resources:
+              limits:
+                cpu: "2"
+                memory: "10G"                

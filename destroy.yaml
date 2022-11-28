@@ -2,7 +2,7 @@
 - hosts: kubernetes
   become: true
   tasks:
-  - name: "Disable swap"
+  - name: "destroy k8s"
     command:
-      cmd: "kubeadm reset --force --dry-run"
+      cmd: "kubeadm reset --force"
     tags: ["never", "reset"] # make this explicit to prevent accidental executions

@@ -119,7 +119,6 @@
           name: "{{ inventory_hostname }}"
           labels: 
             worker: "worker"
-            database: "mysql"
     tags: ["debug"]
 
 ### handle storage which double as loadbalancers
@@ -136,5 +135,6 @@
         metadata:
           name: "{{ inventory_hostname }}"
           labels: 
-            loadbalancer: "haproxy"
+            loadbalancer: "sproxie"
+            svccontroller.k3s.cattle.io/enablelb: "true"
     tags: ["debug"]
